@@ -26,6 +26,7 @@ import { getTokenFromApi } from '../util/tokenUtil';
 
 // Cache keys for cost management clusters
 const COST_CLUSTERS_CACHE_KEY = 'cost_clusters';
+const COST_PROJECTS_CACHE_KEY = 'cost_projects';
 const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 
 export const getCostManagementAccess: (
@@ -56,28 +57,45 @@ export const getCostManagementAccess: (
     return response.json(body);
   }
 
-  // RBAC Filtering logic for Cluster using cost.{clusterName} permissions
+  // RBAC Filtering logic for Cluster using cost.{clusterName} and cost.{clusterName}.{projectName} permissions
   let clusterDataMap: Record<string, string> = {};
+  let allProjects: string[] = [];
 
   // Check the cluster & project data in the cache first
   const clustersFromCache = (await cache.get(COST_CLUSTERS_CACHE_KEY)) as
     | Record<string, string>
     | undefined;
 
-  if (clustersFromCache) {
+  const projectsFromCache = (await cache.get(COST_PROJECTS_CACHE_KEY)) as
+    | string[]
+    | undefined;
+
+  if (clustersFromCache && projectsFromCache) {
     clusterDataMap = clustersFromCache;
-    logger.info(`Using cached data: ${clusterDataMap.length} clusters`);
+    allProjects = projectsFromCache;
+
+    logger.info(
+      `[CACHE HIT] Using cached data: ${
+        Object.keys(clusterDataMap).length
+      } clusters, ${allProjects.length} projects`,
+    );
   } else {
-    // Fetch clusters from Cost Management API
+    // Fetch clusters and projects from Cost Management API
+    logger.info(
+      `[CACHE MISS] Fetching clusters and projects from API with limit: 1000`,
+    );
     try {
       const token = await getTokenFromApi(options);
 
-      const clustersResponse = await costManagementApi.searchOpenShiftClusters(
-        '',
-        { token },
-      );
+      const [clustersResponse, projectsResponse] = await Promise.all([
+        costManagementApi.searchOpenShiftClusters('', { token, limit: 1000 }),
+        costManagementApi.searchOpenShiftProjects('', { token, limit: 1000 }),
+      ]);
 
       const clustersData = await clustersResponse.json();
+      const projectsData = await projectsResponse.json();
+
+      logger.info(`Porject Data: ${JSON.stringify(projectsData)}`);
 
       // Extract cluster names from response
       clustersData.data?.map(
@@ -90,10 +108,21 @@ export const getCostManagementAccess: (
         },
       );
 
+      // Extract project names from response
+      allProjects =
+        projectsData.data?.map((p: { value: string }) => p.value) ?? [];
+
+      logger.info(
+        `Fetched Projects from API: ${allProjects.toString()}, ${
+          allProjects.length
+        } projects`,
+      );
+
       // Store in cache
       await cache.set(COST_CLUSTERS_CACHE_KEY, clusterDataMap, {
         ttl: CACHE_TTL,
       });
+      await cache.set(COST_PROJECTS_CACHE_KEY, allProjects, { ttl: CACHE_TTL });
     } catch (error) {
       logger.error(`Failed to fetch clusters from Cost Management API`, error);
       throw error;
