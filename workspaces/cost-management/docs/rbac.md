@@ -108,6 +108,20 @@ g, user:default/preeti.exploring.life, role:default/rosUser
 g, user:default/preeti.exploring.life, role:default/costUser
 ```
 
+### ⚠️ Common Pitfall: Duplicate Policy Rows Silently Reject the Entire File
+
+If the exact same policy row (same role, permission name, action, and effect) appears **more than once** anywhere in the CSV — even by accident, e.g. from a copy-paste — the RBAC backend's validation (`checkForDuplicatePolicies`, part of `@backstage-community/plugin-rbac-backend`) rejects that reload of the **entire policy file**, not just the duplicated row. This means none of the rows in the file get loaded into the Casbin enforcer for that reload, so previously-working policies can appear to silently stop being enforced.
+
+**Symptom:** you add or confirm an `allow` rule for a specific role/permission, restart or reload, and the permission still evaluates to `DENY` — with no error surfaced to the end user — even though the line in the CSV looks correct.
+
+**How to check:** look for a duplicate-policy warning in the RBAC backend startup/reload logs, or scan the file yourself for repeated lines, e.g.:
+
+```bash
+sort policy.local.csv | uniq -d
+```
+
+**Fix:** remove the duplicate row(s) so each `p, role, permission, action, effect` tuple appears exactly once in the file, then reload/restart.
+
 ## Permission Examples
 
 ### Optimizations Section
