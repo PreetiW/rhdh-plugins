@@ -369,6 +369,7 @@ export class CostManagementSlimClient implements CostManagementSlimApi {
       'openshift-projects',
       search,
       options?.limit,
+      Boolean(options?.token),
     );
 
     // If token provided externally (backend use), use it directly
@@ -398,6 +399,7 @@ export class CostManagementSlimClient implements CostManagementSlimApi {
       'openshift-clusters',
       search,
       options?.limit,
+      Boolean(options?.token),
     );
 
     // If token provided externally (backend use), use it directly
@@ -486,12 +488,20 @@ export class CostManagementSlimClient implements CostManagementSlimApi {
   }
 
   /**
-   * Builds resource type URL routed through the backend secure proxy
+   * Builds a resource-types URL.
+   *
+   * Frontend calls (no token) route through this plugin's own backend
+   * secure proxy (`/proxy/resource-types/...`), which forwards to the
+   * upstream Cost Management API with the correct `/cost-management/v1`
+   * prefix. Backend-to-backend calls (token supplied directly) talk to
+   * the upstream API directly, so `/proxy` must be skipped and
+   * `/cost-management/v1` appended instead - otherwise the request 404s.
    */
   private async buildResourceTypeUrl(
     resourceType: string,
     search?: string,
     limit?: number,
+    direct?: boolean,
   ): Promise<string> {
     const baseUrl = await this.discoveryApi.getBaseUrl(pluginId);
 
@@ -505,7 +515,11 @@ export class CostManagementSlimClient implements CostManagementSlimApi {
     const queryString = params.toString();
     const queryPart = queryString ? `?${queryString}` : '';
 
-    return `${baseUrl}/proxy/resource-types/${resourceType}/${queryPart}`;
+    const pathPrefix = direct
+      ? '/cost-management/v1/resource-types'
+      : '/proxy/resource-types';
+
+    return `${baseUrl}${pathPrefix}/${resourceType}/${queryPart}`;
   }
 
   /**
